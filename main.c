@@ -84,3 +84,65 @@ void algControl(){
     }
 }
 
+void BMESetup(){
+    UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
+    UCB0TBCNT = 2;        // SENDING 2 BYTEs OF DATA
+    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+
+    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+
+    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+
+    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+
+    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+
+    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+
+    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+
+    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+}
+
+void BMEDataGrab(){
+    UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
+    UCB0TBCNT = 1;        // SENDING 1 BYTE OF DATA
+    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+
+    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+
+    UCB0CTLW0 &= ~UCTR;    //PUT I2C IN RX MODE
+    UCB0TBCNT = 0x08;      // Length of Receiving data
+    UCB0CTLW0 |= UCTXSTT;  //GENERATE A START CONDITION
+
+    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+}
+
+#pragma vector = EUSCI_B0_VECTOR
+__interrupt void EUSCI_B0_I2C_ISR(void){
+    switch(UCB0IV){
+    case 0x16://RX
+        Received[Data_Cnt] = UCB0RXBUF; //Retrieve Data
+        if ((Data_Cnt)==(sizeof(Received))-1){
+            Data_Cnt = 0;
+        }else{
+            Data_Cnt++;
+        }
+        break;
+
+    case 0x18://TX
+        if(setup){
+            UCB0TXBUF=Packet[i];
+            i++;
+        }else{
+            UCB0TXBUF=0x1F;
+        }
+        break;
+    }
+}
