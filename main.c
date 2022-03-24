@@ -2,9 +2,18 @@
 #include "reg_map.h"
 #include "sd_card_raw_library.h"
 
+
+int i = 0;
+char BMEPacket[] = {0,0,0,0,0,0,0,0};
+char setup = 1;
+int Data_Cnt = 0;
+
+
 void sensorInit(void);
 void GPSInit(void);
 void algControl();
+void BMESetup(void);
+void BMEDataGrab(void);
 
 
 
@@ -128,8 +137,8 @@ void BMEDataGrab(){
 __interrupt void EUSCI_B0_I2C_ISR(void){
     switch(UCB0IV){
     case 0x16://RX
-        Received[Data_Cnt] = UCB0RXBUF; //Retrieve Data
-        if ((Data_Cnt)==(sizeof(Received))-1){
+        BMEPacket[Data_Cnt] = UCB0RXBUF; //Retrieve Data
+        if ((Data_Cnt)==(sizeof(BMEPacket))-1){
             Data_Cnt = 0;
         }else{
             Data_Cnt++;
@@ -138,7 +147,7 @@ __interrupt void EUSCI_B0_I2C_ISR(void){
 
     case 0x18://TX
         if(setup){
-            UCB0TXBUF=Packet[i];
+            UCB0TXBUF=BMECMD[i];
             i++;
         }else{
             UCB0TXBUF=0x1F;
