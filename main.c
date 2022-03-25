@@ -7,7 +7,8 @@ int i = 0;
 char BMEPacket[] = {0,0,0,0,0,0,0,0};
 char setup = 1;
 int Data_Cnt = 0;
-
+unsigned char sd_buffer1[512];
+unsigned char sd_buffer2[512];
 
 void sensorInit(void);
 void GPSInit(void);
@@ -27,7 +28,7 @@ int main(void)
 {
 	WDTCTL = WDTPW | WDTHOLD;	// stop watchdog timer
 
-	sensorInit();
+	BMEInit();
 
 	SPIInit();
 
@@ -55,13 +56,13 @@ int main(void)
 
 
     while(1){
-
+	BMEDataGrab();
     }
 	return 0;
 }
 
 // I2C BME680 Init
-void sensorInit(void){
+void BMEInit(void){
     UCB0CTLW0 |= UCSWRST; //RESET
 
     UCB0CTLW0 |= UCSSEL_3; //SMCLK
@@ -86,9 +87,9 @@ void GPSInit(void){
 
 void algControl(){
 
-    if(altitude > 60000ft){
+    if(altitude > 60000ft && altitude < 80000ft){
         P6OUT |= ALG;
-    }else if(altitude > 80000ft){
+    }else if(altitude > 80000ft || altitude < 60000ft){
         P6OUT &= ~ALG;
     }
 }
@@ -96,21 +97,26 @@ void algControl(){
 void BMESetup(){
     UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
     UCB0TBCNT = 2;        // SENDING 2 BYTEs OF DATA
+	
+    // Set Oversampling on temperature and pressure
     UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
 
     while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 
+    // Set Oversampling on humidity
     UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
 
     while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 
+    // Set IIR Filter
     UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
 
     while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 
+    // Set to forced mode instead of sleep mode
     UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
 
     while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
@@ -126,12 +132,37 @@ void BMEDataGrab(){
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 
     UCB0CTLW0 &= ~UCTR;    //PUT I2C IN RX MODE
-    UCB0TBCNT = 0x08;      // Length of Receiving data
+    UCB0TBCNT = 0x08;      // Grabs 8 bytes of data
     UCB0CTLW0 |= UCTXSTT;  //GENERATE A START CONDITION
 
     while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 }
+
+void SDSend(){
+    if(address_error != 0){
+        address_cnt = address_last;
+        address_error = 0;
+    }
+    //send buffer1 for block 1
+    address_last = address_cnt;
+    sendData(address_cnt, sd_buffer1);
+    address_cnt++;
+    __delay_cycles(10000);
+    sendCommand(0x4D, 0, 0, dataIn);
+    sendCommand(0x4D, 0, 0, dataIn);
+    __delay_cycles(10000);
+
+    //send buffer2 for block 2
+    address_last = address_cnt;
+    sendData(address_cnt, sd_buffer2);
+    address_cnt++;
+    __delay_cycles(10000);
+    sendCommand(0x4D, 0, 0, dataIn);
+    sendCommand(0x4D, 0, 0, dataIn);
+    __delay_cycles(10000);
+}
+
 
 #pragma vector = EUSCI_B0_VECTOR
 __interrupt void EUSCI_B0_I2C_ISR(void){
