@@ -2,7 +2,9 @@
 #include "reg_map.h"
 #include "sd_card_raw_library.h"
 
-
+//=================================================================
+// GLOBAL VARIABLES
+//=================================================================
 int i = 0;
 char BMEPacket[] = {0,0,0,0,0,0,0,0};
 char setup = 1;
@@ -10,22 +12,24 @@ int Data_Cnt = 0;
 unsigned char sd_buffer1[512];
 unsigned char sd_buffer2[512];
 
+//=================================================================
+// FUNCTION DECLARATIONS
+//=================================================================
 void sensorInit(void);
 void GPSInit(void);
 void algControl();
 void BMESetup(void);
 void BMEDataGrab(void);
 
-
-
-
 /**
  * main.c
  */
 
-
 int main(void)
 {
+//=================================================================
+// INIT
+//=================================================================
 	WDTCTL = WDTPW | WDTHOLD;	// stop watchdog timer
 
 	BMEInit();
@@ -33,7 +37,7 @@ int main(void)
 	SPIInit();
 
 	GPSInit();
-
+//--------------------------------------Port Config---------------------------------------
 	P6DIR |= ALG; //  Port 6.0 as testing output
 	P6OUT &= ~ALG; //  off at start
 
@@ -41,27 +45,50 @@ int main(void)
 	P6REN |= XB;
 	P6OUT |= XB;
 	P6IES |= XB;
+	
+	PM5CTL0 &= ~LOCKLPM5; // TURN ON DIGITAL I/O
+	
+   	__enable_interrupt();
 
-    PM5CTL0 &= ~LOCKLPM5; // TURN ON DIGITAL I/O
+    	P6IFG &= ~XB;
+    	P6IE |= XB;
 
-    __enable_interrupt();
+    	UCB0CTLW0 &= ~UCSWRST;  // OUT OF RESET
 
-    P6IFG &= ~XB;
-    P6IE |= XB;
+    	UCB0IE |= UCTXIE0;      // ENABLE I2C TX IRQ
+    	UCB0IE |= UCRXIE0;      //ENABLE I2C RX IRQ
+	
+//=================================================================
+// MAIN WHILE LOOP
+//=================================================================
 
-    UCB0CTLW0 &= ~UCSWRST;  // OUT OF RESET
-
-    UCB0IE |= UCTXIE0;      // ENABLE I2C TX IRQ
-    UCB0IE |= UCRXIE0;      //ENABLE I2C RX IRQ
-
-
-    while(1){
-	BMEDataGrab();
-    }
+    	while(1){
+		BMEDataGrab();
+    	}
 	return 0;
 }
 
-// I2C BME680 Init
+//=================================================================
+// FUNCTIONS
+//=================================================================
+
+//------------------------------ Algorithm Control Function ------------------------------
+void algControl(){
+
+    if(altitude > 60000ft && altitude < 80000ft){
+        P6OUT |= ALG;
+    }else if(altitude > 80000ft || altitude < 60000ft){
+        P6OUT &= ~ALG;
+    }
+}
+
+//------------------------------ GPS Init ------------------------------
+void GPSInit(void){
+
+}
+
+//====================================== BME680 Functions ======================================
+//------------------------------ I2C Init for BME680 ------------------------------
 void BMEInit(void){
     UCB0CTLW0 |= UCSWRST; //RESET
 
@@ -80,20 +107,7 @@ void BMEInit(void){
     P1SEL1 &= ~SDA;     //P1.2 = SDA
     P1SEL0 |= SDA;
 }
-
-void GPSInit(void){
-
-}
-
-void algControl(){
-
-    if(altitude > 60000ft && altitude < 80000ft){
-        P6OUT |= ALG;
-    }else if(altitude > 80000ft || altitude < 60000ft){
-        P6OUT &= ~ALG;
-    }
-}
-
+//------------------------------ Setup BME680 ------------------------------
 void BMESetup(){
     UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
     UCB0TBCNT = 2;        // SENDING 2 BYTEs OF DATA
@@ -123,6 +137,7 @@ void BMESetup(){
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 }
 
+//------------------------------ Read Data from BME680 ------------------------------
 void BMEDataGrab(){
     UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
     UCB0TBCNT = 1;        // SENDING 1 BYTE OF DATA
@@ -139,6 +154,8 @@ void BMEDataGrab(){
     UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 }
 
+//====================================== SD Card Functions ======================================
+//------------------------------ Store data to SD Card ------------------------------
 void SDSend(){
     if(address_error != 0){
         address_cnt = address_last;
@@ -163,6 +180,9 @@ void SDSend(){
     __delay_cycles(10000);
 }
 
+//=================================================================
+// INTERRUPT SERVICE ROUTINES
+//=================================================================
 
 #pragma vector = EUSCI_B0_VECTOR
 __interrupt void EUSCI_B0_I2C_ISR(void){
