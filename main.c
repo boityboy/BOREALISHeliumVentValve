@@ -5,7 +5,7 @@
 //=================================================================
 // GLOBAL VARIABLES
 //=================================================================
-int i = 0;
+int BMESendCnt = 0;
 char BMEPacket[] = {0,0,0,0,0,0,0,0};
 char setup = 1;
 int Data_Cnt = 0;
@@ -109,36 +109,52 @@ void BMEInit(void){
 }
 //------------------------------ Setup BME680 ------------------------------
 void BMESetup(){
-    UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
+    // Setup Commands to Send
+    UCB0CTLW0 |= UCTR;    //PUTvv +I2C IN TX MODE
     UCB0TBCNT = 2;        // SENDING 2 BYTEs OF DATA
+    while(BMESendCnt < 9){
+        UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+
+        while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+        UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+    }
 	
-    // Set Oversampling on temperature and pressure
-    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+	sd_buffer1[Data_Cnt] = 'P';
+    Data_Cnt++;
+    sd_buffer1[Data_Cnt] = 'A';
+    Data_Cnt++;
+    sd_buffer1[Data_Cnt] = 'R';
+    Data_Cnt++;
+    sd_buffer1[Data_Cnt] = ':';
+    Data_Cnt++;
+    // Acquire Calibration Parameters
+    while(BMESendCnt < 38){
+        UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
+        UCB0TBCNT = 1;        // SENDING 1 BYTE OF DATA
+        UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
 
-    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
-    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+        while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+        UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
 
-    // Set Oversampling on humidity
-    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
+        UCB0CTLW0 &= ~UCTR;    //PUT I2C IN RX MODE
+        UCB0TBCNT = 0x01;      // Length of Receiving data
+        UCB0CTLW0 |= UCTXSTT;  //GENERATE A START CONDITION
 
-    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
-    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
-
-    // Set IIR Filter
-    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
-
-    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
-    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
-
-    // Set to forced mode instead of sleep mode
-    UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
-
-    while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
-    UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
+        while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
+        UCB0IFG &= ~UCSTPIFG;   //CLEAR STOP FLAG
+    }
 }
 
 //------------------------------ Read Data from BME680 ------------------------------
 void BMEDataGrab(){
+    sd_buffer1[Data_Cnt] = 'B';
+    Data_Cnt++;
+    sd_buffer1[Data_Cnt] = 'M';
+    Data_Cnt++;
+    sd_buffer1[Data_Cnt] = 'E';
+    Data_Cnt++;
+    sd_buffer1[Data_Cnt] = ':';
+    Data_Cnt++;
     UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
     UCB0TBCNT = 1;        // SENDING 1 BYTE OF DATA
     UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
@@ -188,8 +204,8 @@ void SDSend(){
 __interrupt void EUSCI_B0_I2C_ISR(void){
     switch(UCB0IV){
     case 0x16://RX
-        BMEPacket[Data_Cnt] = UCB0RXBUF; //Retrieve Data
-        if ((Data_Cnt)==(sizeof(BMEPacket))-1){
+        sd_buffer1[Data_Cnt] = UCB0RXBUF; //Retrieve Data
+        if ((Data_Cnt)==(sizeof(sd_buffer1))-1){
             Data_Cnt = 0;
         }else{
             Data_Cnt++;
@@ -198,8 +214,8 @@ __interrupt void EUSCI_B0_I2C_ISR(void){
 
     case 0x18://TX
         if(setup){
-            UCB0TXBUF=BMECMD[i];
-            i++;
+            UCB0TXBUF=BMECMD[BMESendCnt];
+            BMESendCnt++;
         }else{
             UCB0TXBUF=0x1F;
         }
