@@ -12,14 +12,14 @@ extern unsigned int address_error;
 // IF USING DIFFERENT PINS OR A DIFFERENT MICROCONTROLLER CHANGE THE NEXT 6 LINES
 #include <msp430.h>
 
-#define SPI_PORT_DIR                    P1DIR
-#define SPI_PORT_OUT                    P1OUT
-#define SPI_PORT_IN                     P1IN
-#define SPI_PORT_REN                    P1REN
+#define SPI_PORT_DIR                    P4DIR
+#define SPI_PORT_OUT                    P4OUT
+#define SPI_PORT_IN                     P4IN
+#define SPI_PORT_REN                    P4REN
 #define SPI_STE                         BIT0
 #define SPI_CLK                         BIT1
-#define SPI_MOSI                        BIT2
-#define SPI_MISO                        BIT3
+#define SPI_MOSI                        BIT3
+#define SPI_MISO                        BIT2
 #define SPI_CARD_DETECT                 BIT6
 // ANYTHING AFTER THIS SHOULD BE FINE
 
