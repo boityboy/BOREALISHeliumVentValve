@@ -15,20 +15,9 @@ char j = 0;
 unsigned char sd_buffer[512];
 unsigned char BMEmode[] = {0x74, 0x49};
 unsigned long address_cnt  = 0; // CNT for address of microSD
-unsigned long address_last = 0; // For error flag
-int p1;
-int p2;
-int p3;
-int p4;
-int p5;
-int p6;
-int p7;
-int p8;
-int p9;
-int p10;
-int t1;
-int t2;
-int t3;
+unsigned int *FRAM_ptr = (unsigned long *)0x18FC;;
+char algcheck = 1;
+
 
 //=================================================================
 // FUNCTION DECLARATIONS
@@ -39,7 +28,8 @@ void algControl();
 void BMESetup(void);
 void BMEDataGrab(void);
 void SDSend(unsigned char* dataIn);
-int pressCalc(void);
+void FRAMWrite(unsigned long);
+unsigned long FRAMRead();
 
 /**
  * main.c
@@ -58,18 +48,27 @@ int main(void)
 
 //    GPSInit();
 //--------------------------------------Port Config---------------------------------------
-    P6DIR |= ALG; //  Port 6.0 as testing output
-    P6OUT &= ~ALG; //  off at start
+    P6DIR |= ALG; //  Alg Control Output Port
+    P6OUT &= ~ALG; 
 
-    P6DIR &= ~XB; //  Port 5.2 as testing output
+    P6DIR &= ~XB; //  XB Control Input Port
     P6REN |= XB;
     P6OUT |= XB;
     P6IES |= XB;
+    
+    P4DIR &= ~BIT7; //  Reset Input Port
+    P4REN |= BIT7;
+    P4OUT &= ~BIT7;
+    P4IES &= ~BIT7;
 
     PM5CTL0 &= ~LOCKLPM5; // TURN ON DIGITAL I/O
 
+    // Port Interrupt Setup
     P6IFG &= ~XB;
     P6IE |= XB;
+    
+    P4IFG &= ~BIT7;
+    P4IE |= BIT7;
 
     UCB0CTLW0 &= ~UCSWRST;  // OUT OF RESET
 
@@ -80,9 +79,9 @@ int main(void)
     sdCardInit();                                       // Send Initialization Commands to SD Card
     unsigned char dataIn[6];
     sendCommand(0x50, 0x200, 0xFF, dataIn);             // CMD 16 : Set Block Length
-    char pargrab = 1;
-    float pressReal;
     __enable_interrupt();
+    
+    
     // Sensor Setup Message
     BMESetup();
 
@@ -93,23 +92,6 @@ int main(void)
         while(1){
             if(Data_Cnt < 500){
                BMEDataGrab();
-               if(pargrab == 1){
-                   p1 = sd_buffer[5] << 8 | sd_buffer[6];
-                   p2 = sd_buffer[7] << 8 | sd_buffer[8];
-                   p3 = sd_buffer[9];
-                   p4 = sd_buffer[10] << 8 | sd_buffer[11];
-                   p5 = sd_buffer[12] << 8 | sd_buffer[13];
-                   p6 = sd_buffer[14];
-                   p7 = sd_buffer[15];
-                   p8 = sd_buffer[16] << 8 | sd_buffer[17];
-                   p9 = sd_buffer[18] << 8 | sd_buffer[19];
-                   p10 = sd_buffer[20];
-                   t1 = sd_buffer[0] << 8 | sd_buffer[1];
-                   t2 = sd_buffer[2] << 8 | sd_buffer[3];
-                   t3 = sd_buffer[4];
-                   pargrab = 0;
-               }
-               pressReal = pressCalc();
             }else{
                 SDSend(dataIn);
             }
@@ -132,36 +114,7 @@ int main(void)
     }
 }
 */
-int pressCalc(void){
-    int tvar1, tvar2, tvar3, t_fine, pvar1, pvar2, pvar3, press_comp, temp_comp;
-    int tempadc = (sd_buffer[Data_Cnt - 5] << 12) | (sd_buffer[Data_Cnt - 4] << 4) | ((sd_buffer[Data_Cnt - 3] | 0b11110000) >> 4);
-    int pressadc = (sd_buffer[Data_Cnt - 8] << 12) | (sd_buffer[Data_Cnt - 7] << 4) | ((sd_buffer[Data_Cnt - 6] | 0b11110000) >> 4);
-    tvar1 = (tempadc >> 3) - (t1 << 1);
-    tvar2 = (tvar1 * t2) >> 11;
-    tvar3 = ((((tvar1 >> 1) * (tvar1 >> 1)) >> 12) * (t3 << 4)) >> 14;
-    t_fine = tvar3+tvar2;
-    temp_comp = ((t_fine * 5) + 128) >> 8;;
-    pvar1 = (t_fine >> 1) - 64000;
-    pvar2 = ((((pvar1 >> 2) * (pvar1 >> 2)) >> 11) * p6) >> 2;
-    pvar2 = pvar2 + ((pvar1 * p5) << 1);
-    pvar2 = (pvar2 >> 2) + (p4 << 16);
-    pvar1 = (((((pvar1 >> 2) * (pvar1 >> 2)) >> 13) * (p3 << 5)) >> 3) + ((p2 * pvar1) >> 1);
-    pvar1 = pvar1 >> 18;
-    pvar1 = ((32768 + pvar1) * p1) >> 15;
-    press_comp = 1048576 - pressadc;
-    press_comp = ((press_comp - (pvar2 >> 12)) * 3125);
-    if (press_comp >= (1 << 30)){
-        press_comp = ((press_comp / pvar1) << 1);
-    }else{
-        press_comp = ((press_comp << 1) / pvar1);
-    }
-    pvar1 = (p9 * (((press_comp >> 3) * (press_comp >> 3)) >> 13)) >> 12;
-    pvar2 = ((press_comp >> 2) * p8) >> 13;
-    pvar3 = ((press_comp >> 8) * (press_comp >> 8) * (press_comp >> 8) * p10) >> 17;
-    press_comp = press_comp + ((pvar1 + pvar2 + pvar3 + (p7 << 7)) >> 4);
-    press_comp = press_comp * 1;
-    return press_comp;
-}
+
 
 //------------------------------ GPS Init ------------------------------
 void GPSInit(void){
@@ -198,7 +151,7 @@ void BMESetup(){
     // Setup Commands to Send
     UCB0CTLW0 |= UCTR;    //PUT +I2C IN TX MODE
     UCB0TBCNT = 0x02;        // SENDING 2 BYTEs OF DATA
-    while(BMESendCnt < 9){
+    while(BMESendCnt < 7){
         UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
         while((UCB0IFG & UCSTPIFG)==0){} //WAITS FOR STOP CONDITION
         UCB0IFG &= ~UCSTPIFG;            //CLEAR STOP FLAG
@@ -213,7 +166,7 @@ void BMESetup(){
     sd_buffer[Data_Cnt] = ':';
     Data_Cnt++;
     // Acquire Calibration Parameters
-    while(BMESendCnt < 38){
+    while(BMESendCnt < 37){
         UCB0CTLW0 |= UCTR;    //PUT I2C IN TX MODE
         UCB0TBCNT = 0x01;        // SENDING 1 BYTE OF DATA
         UCB0CTLW0 |= UCTXSTT; //GENERATE A START CONDITION
@@ -234,6 +187,8 @@ void BMESetup(){
 }
 
 //------------------------------ Read Data from BME680 ------------------------------
+// Adds Delimiter to SD packet then activates a reading on the BME
+// Finally reads 3 bytes of pressure, 3 bytes of temperature, and 2 bytes of humidity
 void BMEDataGrab(){
     // Apply Delimiter
     sd_buffer[Data_Cnt] = 'B';
@@ -275,27 +230,47 @@ void BMEDataGrab(){
 
 //====================================== SD Card Functions ======================================
 //------------------------------ Store data to SD Card ------------------------------
+// Checks the Address value in the FRAM and sends data to that location in the sd card
+// The address count increments and writes the new address to the FRAM
 void SDSend(unsigned char* dataIn){
     if(address_error != 0){
-        address_cnt = address_last;
+        address_cnt = FRAMRead();
         address_error = 0;
     }
     //send buffer1 for block 1
-    address_last = address_cnt;
+    address_cnt = FRAMRead();
     sendData(address_cnt, sd_buffer);
     address_cnt++;
+    FRAMWrite(address_cnt);
     __delay_cycles(10000);
     sendCommand(0x4D, 0, 0, dataIn);
     sendCommand(0x4D, 0, 0, dataIn);
     __delay_cycles(10000);
     Data_Cnt = 0;
+}
 
+//====================================== Non-Volatile Memory Functions ======================================
+//------------------------------ Store data to FRAM ------------------------------
+// Keep track of address on SD Card regardless of power cycling
+void FRAMWrite (unsigned long data)
+{
+    SYSCFG0 = FRWPPW | PFWP;
+    *FRAM_ptr = data;
+    SYSCFG0 = FRWPPW | PFWP | DFWP;
+}
+
+//------------------------------ Read data to FRAM ------------------------------
+unsigned long FRAMRead(void){
+    unsigned long dat;
+    dat = *FRAM_ptr; // data to read
+    return dat;
 }
 
 //=================================================================
 // INTERRUPT SERVICE ROUTINES
 //=================================================================
 
+// BME I2C Interrupt
 #pragma vector = EUSCI_B0_VECTOR
 __interrupt void EUSCI_B0_I2C_ISR(void){
     switch(UCB0IV){
@@ -309,16 +284,35 @@ __interrupt void EUSCI_B0_I2C_ISR(void){
         break;
 
     case 0x18://TX
+        // Sends Setup and Parameter Commands
         if(setup == 1){
             UCB0TXBUF=BMECMD[BMESendCnt];
             BMESendCnt++;
+        // Sets BME to be ready for reading
         }else if(ModeChg == 1){
             UCB0TXBUF = BMEmode[j];
             j++;
         }
+        // First Register for BME Data Reading
         else{
             UCB0TXBUF=0x1F;
         }
         break;
     }
+}
+
+// Manual XB Override interrupt
+#pragma vector = PORT6_VECTOR
+__interrupt void ISR_Port6_S2(void)
+{
+    algcheck = 0;
+    P6IFG &= ~XB;
+}
+
+// Reset for FRAM Address value
+#pragma vector = PORT4_VECTOR
+__interrupt void ISR_Port4_S2(void)
+{
+    FRAMWrite(0x0);
+    P4IFG &= ~BIT7;
 }
